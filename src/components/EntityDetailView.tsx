@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useFleet } from '../store';
 import { Entity, Document } from '../data';
-import { Truck, Users, Plus, ArrowLeft, Trash2, Edit2, ShieldAlert } from 'lucide-react';
+import { Truck, Users, Plus, ArrowLeft, Trash2, Edit2, ShieldAlert, UploadCloud, Loader2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 interface EntityDetailViewProps {
@@ -12,6 +12,8 @@ interface EntityDetailViewProps {
 export default function EntityDetailView({ entity, onBack }: EntityDetailViewProps) {
   const { documents, renewDocument, deleteDocument, addDocument } = useFleet();
   const [isAdding, setIsAdding] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const entityDocs = documents
     .filter(d => d.entityId === entity.id)
@@ -48,6 +50,64 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
   const [newIssueDate, setNewIssueDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [newExpiryDate, setNewExpiryDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [hasExpiry, setHasExpiry] = useState(true);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+        
+        const response = await fetch('/api/extract-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileData: base64data,
+            mimeType: file.type,
+            entityType: entity.type
+          })
+        });
+        
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Extraction failed');
+        }
+        
+        const data = await response.json();
+        
+        if (data.type) {
+          // Check if it matches existing types closely, otherwise use custom
+          const match = suggestedTypes.find(t => t.toLowerCase() === data.type.toLowerCase() || t.toLowerCase().includes(data.type.toLowerCase()));
+          if (match) {
+            setNewType(match);
+            setIsCustomType(false);
+          } else {
+            setNewType('other');
+            setIsCustomType(true);
+            setCustomType(data.type);
+          }
+        }
+        
+        if (data.issueDate) setNewIssueDate(data.issueDate);
+        if (data.hasNoExpiry) {
+           setHasExpiry(false);
+        } else if (data.expiryDate) {
+           setHasExpiry(true);
+           setNewExpiryDate(data.expiryDate);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      console.error('OCR Error:', error);
+      alert('Failed to extract document data automatically. Please enter details manually.');
+    } finally {
+      setIsScanning(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +168,35 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
 
       {isAdding && (
         <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-5 sm:p-6 mb-6 animate-in fade-in slide-in-from-top-4">
-          <h2 className="text-lg font-medium text-white mb-4">Add Document for {entity.name}</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-medium text-white">Add Document for {entity.name}</h2>
+            
+            <div className="relative">
+              <input 
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept="image/*,.pdf"
+                className="hidden"
+                id="doc-upload"
+              />
+              <label 
+                htmlFor="doc-upload"
+                className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium border transition-colors cursor-pointer ${
+                  isScanning 
+                    ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-300' 
+                    : 'border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white'
+                }`}
+              >
+                {isScanning ? (
+                  <><Loader2 size={16} className="mr-2 animate-spin" /> Scanning AI...</>
+                ) : (
+                  <><UploadCloud size={16} className="mr-2" /> Auto-Extract from File</>
+                )}
+              </label>
+            </div>
+          </div>
+
           <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className={`md:col-span-2 flex flex-col sm:flex-row gap-4`}>
               <div className="flex-1">

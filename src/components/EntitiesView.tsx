@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useFleet } from '../store';
 import { EntityType, Entity } from '../data';
-import { Truck, Users, Plus, FolderOpen, AlertCircle } from 'lucide-react';
+import { Truck, Users, Plus, FolderOpen, AlertCircle, Trash2 } from 'lucide-react';
 
 interface EntitiesViewProps {
   type: EntityType;
@@ -9,7 +9,7 @@ interface EntitiesViewProps {
 }
 
 export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps) {
-  const { entities, documents, addEntity } = useFleet();
+  const { entities, documents, addEntity, deleteEntity } = useFleet();
   const [isAdding, setIsAdding] = useState(false);
   const [newEntityId, setNewEntityId] = useState('');
   const [newEntityName, setNewEntityName] = useState('');
@@ -17,6 +17,7 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
   const filteredEntities = entities.filter(e => e.type === type);
 
   const handleAdd = (e: React.FormEvent) => {
+  
     e.preventDefault();
     if (!newEntityId || !newEntityName) return;
     addEntity({
@@ -97,12 +98,26 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
                 <div className={`p-3 rounded-lg ${type === 'Truck' ? 'bg-blue-500/10 text-blue-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
                   {type === 'Truck' ? <Truck size={24} /> : <Users size={24} />}
                 </div>
-                {urgentDocs > 0 && (
-                  <div className="flex items-center space-x-1 text-xs font-medium text-amber-500 bg-amber-500/10 px-2 py-1 rounded-full animate-pulse">
-                    <AlertCircle size={12} />
-                    <span>{urgentDocs} Urgent</span>
-                  </div>
-                )}
+                <div className="flex flex-col items-end gap-2">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Are you sure you want to delete ${entity.name}? All its documents will also be removed.`)) {
+                        deleteEntity(entity.id);
+                      }
+                    }}
+                    className="p-2 text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors invisible group-hover:visible"
+                    aria-label="Delete Entity"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  {urgentDocs > 0 && (
+                    <div className="flex items-center space-x-1 text-xs font-medium text-amber-500 bg-amber-500/10 px-2 py-1 rounded-full animate-pulse">
+                      <AlertCircle size={12} />
+                      <span>{urgentDocs} Urgent</span>
+                    </div>
+                  )}
+                </div>
               </div>
               
               <h3 className="text-lg font-bold text-white mb-1 truncate">{entity.name}</h3>
