@@ -32,8 +32,8 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error('Firestore Error: ', JSON.stringify(errInfo, null, 2));
+  return errInfo.error;
 }
 
 interface FleetState {
@@ -48,6 +48,7 @@ interface FleetState {
   signIn: () => Promise<void>;
   logOut: () => Promise<void>;
   authError: string | null;
+  dbError: string | null;
 }
 
 const FleetContext = createContext<FleetState | null>(null);
@@ -58,6 +59,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -81,8 +83,11 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       const ents: Entity[] = [];
       snapshot.forEach(doc => ents.push(doc.data() as Entity));
       setEntities(ents);
+      setDbError(null);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/entities`);
+      const errMsg = handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/entities`);
+      setDbError(errMsg);
+      setIsLoaded(true);
     });
 
     const unsubDocs = onSnapshot(collection(db, `users/${user.uid}/documents`), async (snapshot) => {
@@ -116,8 +121,11 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
 
       setDocuments(docs);
       setIsLoaded(true);
+      setDbError(null);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/documents`);
+      const errMsg = handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/documents`);
+      setDbError(errMsg);
+      setIsLoaded(true);
     });
 
     return () => {
@@ -242,7 +250,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut, authError }}>
+    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut, authError, dbError }}>
       {isLoaded ? children : null}
     </FleetContext.Provider>
   );
