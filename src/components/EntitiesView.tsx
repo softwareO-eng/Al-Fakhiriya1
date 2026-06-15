@@ -106,7 +106,7 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
                         deleteEntity(entity.id);
                       }
                     }}
-                    className="p-2 text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors invisible group-hover:visible"
+                    className="p-2 text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors"
                     aria-label="Delete Entity"
                   >
                     <Trash2 size={16} />

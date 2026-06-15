@@ -10,7 +10,7 @@ interface EntityDetailViewProps {
 }
 
 export default function EntityDetailView({ entity, onBack }: EntityDetailViewProps) {
-  const { documents, renewDocument, deleteDocument, addDocument } = useFleet();
+  const { documents, renewDocument, deleteDocument, addDocument, deleteEntity } = useFleet();
   const [isAdding, setIsAdding] = useState(false);
   const [scanProgress, setScanProgress] = useState<{current: number, total: number} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -167,7 +167,21 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
               {entity.type === 'Truck' ? <Truck size={28} /> : <Users size={28} />}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white mb-1">{entity.name}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-white mb-1">{entity.name}</h1>
+                <button 
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete ${entity.name}? All its documents will also be removed.`)) {
+                      deleteEntity(entity.id);
+                      onBack();
+                    }
+                  }}
+                  className="p-1.5 text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-colors cursor-pointer"
+                  title={`Delete ${entity.type}`}
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
               <span className="text-sm px-2 py-1 bg-neutral-800 text-neutral-300 rounded font-medium">ID: {entity.id}</span>
             </div>
           </div>
