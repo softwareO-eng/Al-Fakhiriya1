@@ -3,7 +3,7 @@ import { mockDocuments as initialDocs, mockEntities as initialEntities, Document
 import { differenceInDays, parseISO } from 'date-fns';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 enum OperationType {
   CREATE = 'create',
@@ -47,6 +47,7 @@ interface FleetState {
   user: User | null;
   signIn: () => Promise<void>;
   logOut: () => Promise<void>;
+  authError: string | null;
 }
 
 const FleetContext = createContext<FleetState | null>(null);
@@ -56,6 +57,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -66,6 +68,17 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
         setIsLoaded(true);
       }
     });
+
+    // Check for redirect errors
+    getRedirectResult(auth).catch((e: any) => {
+      console.error("Redirect sign in error:", e);
+      if (e.code === 'auth/unauthorized-domain') {
+        setAuthError("This domain is not authorized. Please add it in your Firebase Console -> Authentication -> Settings -> Authorized domains.");
+      } else {
+        setAuthError(e.message || "Failed to sign in via redirect.");
+      }
+    });
+
     return unsub;
   }, []);
 
@@ -163,8 +176,19 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   }, [documents, isLoaded, user]);
 
   const signIn = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      setAuthError(null);
+      const provider = new GoogleAuthProvider();
+      // Use redirect as it's more reliable on mobile devices
+      await signInWithRedirect(auth, provider);
+    } catch (e: any) {
+      console.error("Sign in error:", e);
+      if (e.code === 'auth/unauthorized-domain') {
+        setAuthError("This domain is not authorized. Please add it in your Firebase Console -> Authentication -> Settings -> Authorized domains.");
+      } else {
+        setAuthError(e.message || "Failed to sign in.");
+      }
+    }
   };
 
   const logOut = async () => {
@@ -224,7 +248,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut }}>
+    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut, authError }}>
       {isLoaded ? children : null}
     </FleetContext.Provider>
   );

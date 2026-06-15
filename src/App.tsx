@@ -18,7 +18,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
 
-  const { documents, user, signIn, logOut } = useFleet();
+  const { documents, user, signIn, logOut, authError } = useFleet();
   const expiringDocsCount = documents.filter(d => d.daysUntilExpiry !== null && d.daysUntilExpiry <= 30).length;
 
   if (!user) {
@@ -30,6 +30,14 @@ export default function App() {
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">FleetSync</h1>
           <p className="text-neutral-400 mb-8">Sign in to manage your fleet documents and automated OCR expiry tracking.</p>
+          
+          {authError && (
+            <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm text-left flex items-start">
+              <AlertTriangle className="h-5 w-5 mr-2 shrink-0 mt-0.5" />
+              <span>{authError}</span>
+            </div>
+          )}
+
           <button 
             onClick={signIn}
             className="w-full bg-white text-neutral-950 hover:bg-neutral-200 font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center cursor-pointer"
