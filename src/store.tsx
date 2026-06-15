@@ -184,7 +184,12 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       await signInWithRedirect(auth, provider);
     } catch (e: any) {
       console.error("Sign in error:", e);
-      setAuthError(e.message || "Failed to start sign in redirect.");
+      if (e.code === 'auth/unauthorized-domain') {
+        const domain = window.location.hostname;
+        setAuthError(`The domain "${domain}" is not authorized. Please add it in your Firebase Console -> Authentication -> Settings -> Authorized domains.`);
+      } else {
+        setAuthError(e.message || "Failed to start sign in redirect.");
+      }
     }
   };
 
