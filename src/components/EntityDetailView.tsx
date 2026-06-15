@@ -12,7 +12,7 @@ interface EntityDetailViewProps {
 export default function EntityDetailView({ entity, onBack }: EntityDetailViewProps) {
   const { documents, renewDocument, deleteDocument, addDocument } = useFleet();
   const [isAdding, setIsAdding] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState<{current: number, total: number} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const entityDocs = documents
@@ -52,14 +52,22 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
   const [hasExpiry, setHasExpiry] = useState(true);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
-    setIsScanning(true);
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64data = reader.result as string;
+    setScanProgress({ current: 0, total: files.length });
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setScanProgress({ current: i + 1, total: files.length });
+      
+      try {
+        const reader = new FileReader();
+        const base64data = await new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
         
         const response = await fetch('/api/extract-document', {
           method: 'POST',
@@ -78,35 +86,42 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
         
         const data = await response.json();
         
+        let finalType = 'Unknown Document';
         if (data.type) {
-          // Check if it matches existing types closely, otherwise use custom
           const match = suggestedTypes.find(t => t.toLowerCase() === data.type.toLowerCase() || t.toLowerCase().includes(data.type.toLowerCase()));
           if (match) {
-            setNewType(match);
-            setIsCustomType(false);
+            finalType = match;
           } else {
-            setNewType('other');
-            setIsCustomType(true);
-            setCustomType(data.type);
+            finalType = data.type;
           }
         }
         
-        if (data.issueDate) setNewIssueDate(data.issueDate);
-        if (data.hasNoExpiry) {
-           setHasExpiry(false);
-        } else if (data.expiryDate) {
-           setHasExpiry(true);
-           setNewExpiryDate(data.expiryDate);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (error: any) {
-      console.error('OCR Error:', error);
-      alert('Failed to extract document data automatically. Please enter details manually.');
-    } finally {
-      setIsScanning(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+        const issueDate = data.issueDate ? new Date(data.issueDate).toISOString() : new Date().toISOString();
+        const hasExpiry = !data.hasNoExpiry && !!data.expiryDate;
+        const expiryDate = hasExpiry ? new Date(data.expiryDate).toISOString() : null;
+        
+        addDocument({
+          id: `DOC-${Math.floor(Math.random() * 10000)}`,
+          name: `${entity.name} - ${finalType}`,
+          type: finalType,
+          entityId: entity.id,
+          entityName: entity.name,
+          entityType: entity.type,
+          issueDate,
+          expiryDate,
+          status: hasExpiry ? 'valid' : 'no_expiry',
+          daysUntilExpiry: hasExpiry ? 0 : null,
+        } as Document);
+
+      } catch (error: any) {
+        console.error('OCR Error:', error);
+        alert(`Failed to extract document data automatically for ${file.name}.`);
+      }
     }
+
+    setScanProgress(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setIsAdding(false);
   };
 
   const handleAdd = (e: React.FormEvent) => {
@@ -174,6 +189,7 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
             <div className="relative">
               <input 
                 type="file"
+                multiple
                 ref={fileInputRef}
                 onChange={handleFileUpload}
                 accept="image/*,.pdf"
@@ -183,15 +199,15 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
               <label 
                 htmlFor="doc-upload"
                 className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium border transition-colors cursor-pointer ${
-                  isScanning 
+                  scanProgress 
                     ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-300' 
                     : 'border-neutral-700 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white'
                 }`}
               >
-                {isScanning ? (
-                  <><Loader2 size={16} className="mr-2 animate-spin" /> Scanning AI...</>
+                {scanProgress ? (
+                  <><Loader2 size={16} className="mr-2 animate-spin" /> {scanProgress.current}/{scanProgress.total} Auto-Saving...</>
                 ) : (
-                  <><UploadCloud size={16} className="mr-2" /> Auto-Extract from File</>
+                  <><UploadCloud size={16} className="mr-2" /> Bulk Upload AI Scan</>
                 )}
               </label>
             </div>
