@@ -52,7 +52,7 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
   const [hasExpiry, setHasExpiry] = useState(true);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+    const files = Array.from(e.target.files || []) as File[];
     if (!files.length) return;
 
     setScanProgress({ current: 0, total: files.length });

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { LayoutDashboard, Users, Truck, Bell, Settings, Search, AlertTriangle, ShieldCheck, Menu, X, ArrowLeft } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import EntitiesView from './components/EntitiesView';
@@ -198,7 +198,7 @@ export default function App() {
   );
 }
 
-function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNode; label: string; active?: boolean, onClick?: () => void }) {
+function NavItem({ icon, label, active = false, onClick }: { icon: ReactNode; label: string; active?: boolean, onClick?: () => void }) {
   return (
     <button
       onClick={onClick}

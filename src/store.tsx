@@ -104,12 +104,16 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
            const parsedDocs = JSON.parse(localDocs) as Document[];
            
            if (parsedEnts.length > 0 || parsedDocs.length > 0) {
+             const migrationPromises = [];
              for (const e of parsedEnts) {
-               await setDoc(doc(db, `users/${user.uid}/entities`, e.id), { ...e, userId: user.uid });
+               migrationPromises.push(setDoc(doc(db, `users/${user.uid}/entities`, e.id), { ...e, userId: user.uid }));
              }
              for (const d of parsedDocs) {
-               await setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid });
+               migrationPromises.push(setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid }));
              }
+             // Do not await to avoid blocking UI if network is spotty
+             Promise.all(migrationPromises).catch(e => console.error(e));
+
              localStorage.removeItem('fleet_entities');
              localStorage.removeItem('fleet_documents');
              console.log("Migrated local data to Firebase");

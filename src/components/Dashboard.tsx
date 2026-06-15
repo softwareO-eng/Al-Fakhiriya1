@@ -128,7 +128,7 @@ function StatCard({ title, value, icon, subtitle, trend, alert }: { title: strin
   );
 }
 
-function DocumentRow({ doc, onRenew }: { doc: Document, onRenew: (id: string) => void }) {
+function DocumentRow({ doc, onRenew }: { key?: React.Key, doc: Document, onRenew: (id: string) => void }) {
   const hasNoExpiry = doc.daysUntilExpiry === null;
   const isExpired = !hasNoExpiry && doc.daysUntilExpiry! < 0;
   const isUrgent = !hasNoExpiry && doc.daysUntilExpiry! >= 0 && doc.daysUntilExpiry! <= 14;
