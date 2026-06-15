@@ -3,7 +3,7 @@ import { mockDocuments as initialDocs, mockEntities as initialEntities, Document
 import { differenceInDays, parseISO } from 'date-fns';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
-import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
 
 enum OperationType {
   CREATE = 'create',
@@ -63,18 +63,22 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      if (!user) {
-        const localEnts = localStorage.getItem('fleet_entities_v2');
-        const localDocs = localStorage.getItem('fleet_documents_v2');
-        if (localEnts && localDocs) {
-          setEntities(JSON.parse(localEnts));
-          setDocuments(JSON.parse(localDocs));
-        } else {
-          setEntities(initialEntities);
-          setDocuments(initialDocs);
-        }
-        setIsLoaded(true);
+      if (user) {
+        setUser(user);
+      } else {
+        signInAnonymously(auth).catch(e => {
+          console.error("Auto sign in failed", e);
+          const localEnts = localStorage.getItem('fleet_entities_v2');
+          const localDocs = localStorage.getItem('fleet_documents_v2');
+          if (localEnts && localDocs) {
+            setEntities(JSON.parse(localEnts));
+            setDocuments(JSON.parse(localDocs));
+          } else {
+            setEntities(initialEntities);
+            setDocuments(initialDocs);
+          }
+          setIsLoaded(true);
+        });
       }
     });
 
@@ -192,25 +196,16 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const signIn = async () => {
     try {
       setAuthError(null);
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      await signInAnonymously(auth);
     } catch (e: any) {
       console.error("Sign in error:", e);
-      if (e.code === 'auth/unauthorized-domain') {
-        const domain = window.location.hostname;
-        setAuthError(`The domain "${domain}" is not authorized. Please add it in your Firebase Console -> Authentication -> Settings -> Authorized domains.`);
-      } else if (e.code === 'auth/popup-closed-by-user') {
-        setAuthError("Sign-in was cancelled. Please try again.");
-      } else if (e.code === 'auth/network-request-failed') {
-        setAuthError("Network error. Please check your internet connection or disable ad-blockers/strict tracking prevention.");
-      } else {
-        setAuthError(e.message || "Failed to sign in.");
-      }
+      setAuthError(e.message || "Failed to sign in anonymously.");
     }
   };
 
   const logOut = async () => {
-    await signOut(auth);
+    // Cannot log out of anonymous easily without losing access, but we can do auth.signOut()
+    await auth.signOut();
   };
 
   const renewDocument = async (id: string, newExpiry: string) => {

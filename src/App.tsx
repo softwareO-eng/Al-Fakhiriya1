@@ -100,30 +100,21 @@ export default function App() {
             <div className="flex items-center space-x-3 justify-between">
               <div className="flex items-center space-x-3 min-w-0">
                 <div className="h-10 w-10 rounded-full bg-indigo-600 flex items-center justify-center text-sm font-medium text-white shadow-inner flex-shrink-0">
-                  {user.email?.substring(0, 2).toUpperCase() || 'U'}
+                  {user.email ? user.email.substring(0, 2).toUpperCase() : 'GS'}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-white truncate w-32">{user.email}</p>
-                  <p className="text-xs text-emerald-400 font-medium tracking-wide">✓ Verified</p>
+                  <p className="text-sm font-medium text-white truncate w-32">{user.email || 'Guest Session'}</p>
+                  <p className="text-xs text-neutral-400 font-medium tracking-wide">Auto-saved</p>
                 </div>
               </div>
-              <button 
-                onClick={logOut} 
-                className="text-neutral-400 hover:text-white p-2 rounded-md hover:bg-neutral-800 cursor-pointer"
-                title="Log out"
-              >
-                <X className="h-4 w-4" />
-              </button>
             </div>
           ) : (
-            <div>
-              <button 
-                onClick={signIn}
-                className="w-full bg-white text-neutral-950 hover:bg-neutral-200 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center cursor-pointer text-sm mb-2"
-              >
-                Sign in with Google
-              </button>
-              {authError && <p className="text-xs text-rose-400">{authError}</p>}
+            <div className="flex items-center space-x-3">
+               <div className="h-10 w-10 rounded-full bg-neutral-800 flex items-center justify-center text-sm font-medium text-neutral-500 shadow-inner flex-shrink-0">...</div>
+               <div className="min-w-0">
+                 <p className="text-sm font-medium text-neutral-400 truncate w-32">Connecting...</p>
+                 {authError && <p className="text-xs text-rose-400">{authError}</p>}
+               </div>
             </div>
           )}
         </div>
