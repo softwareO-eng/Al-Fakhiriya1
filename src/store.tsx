@@ -3,7 +3,7 @@ import { mockDocuments as initialDocs, mockEntities as initialEntities, Document
 import { differenceInDays, parseISO } from 'date-fns';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
-import { signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 enum OperationType {
   CREATE = 'create',
@@ -66,16 +66,6 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
         setDocuments([]);
         setEntities([]);
         setIsLoaded(true);
-      }
-    });
-
-    // Check for redirect errors
-    getRedirectResult(auth).catch((e: any) => {
-      console.error("Redirect sign in error:", e);
-      if (e.code === 'auth/unauthorized-domain') {
-        setAuthError("This domain is not authorized. Please add it in your Firebase Console -> Authentication -> Settings -> Authorized domains.");
-      } else {
-        setAuthError(e.message || "Failed to sign in via redirect.");
       }
     });
 
@@ -179,12 +169,13 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     try {
       setAuthError(null);
       const provider = new GoogleAuthProvider();
-      // Use redirect as it's more reliable on mobile devices
-      await signInWithRedirect(auth, provider);
+      await signInWithPopup(auth, provider);
     } catch (e: any) {
       console.error("Sign in error:", e);
       if (e.code === 'auth/unauthorized-domain') {
         setAuthError("This domain is not authorized. Please add it in your Firebase Console -> Authentication -> Settings -> Authorized domains.");
+      } else if (e.code === 'auth/popup-closed-by-user') {
+        setAuthError("Sign-in popup was closed before completion.");
       } else {
         setAuthError(e.message || "Failed to sign in.");
       }
