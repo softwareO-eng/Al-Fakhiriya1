@@ -251,7 +251,12 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut, authError, dbError }}>
-      {isLoaded ? children : null}
+      {isLoaded ? children : (
+        <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
+          <p className="text-neutral-400 font-medium">Loading FleetSync...</p>
+        </div>
+      )}
     </FleetContext.Provider>
   );
 }
