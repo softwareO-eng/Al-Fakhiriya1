@@ -48,6 +48,19 @@ interface FleetState {
   dbError: string | null;
 }
 
+export function computeExpiryProperties(doc: Document): Document {
+  if (!doc.expiryDate) {
+    return { ...doc, daysUntilExpiry: null, status: 'no_expiry' as const };
+  }
+  const today = new Date();
+  const days = differenceInDays(parseISO(doc.expiryDate), today);
+  let status: 'valid' | 'expiring_soon' | 'expired' | 'no_expiry' = 'valid';
+  if (days < 0) status = 'expired';
+  else if (days <= 30) status = 'expiring_soon';
+  
+  return { ...doc, daysUntilExpiry: days, status };
+}
+
 const FleetContext = createContext<FleetState | null>(null);
 
 export function FleetProvider({ children }: { children: React.ReactNode }) {
@@ -72,9 +85,10 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       const docs: Document[] = [];
       snapshot.forEach(doc => docs.push(doc.data() as Document));
       
-      // Seed data if empty
-      if (docs.length === 0) {
+      // Seed data if empty AND we haven't seeded before (one-shot per browser session to prevent reappearing on delete)
+      if (docs.length === 0 && localStorage.getItem('fleet_seeded_v3') !== 'true') {
          try {
+           localStorage.setItem('fleet_seeded_v3', 'true');
            const migrationPromises = [];
            for (const e of initialEntities) {
              migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
@@ -88,7 +102,10 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
          }
       }
 
-      setDocuments(docs);
+      // Compute expiry properties dynamically in memory for maximum performance
+      const computedDocs = docs.map(computeExpiryProperties);
+
+      setDocuments(computedDocs);
       setIsLoaded(true);
       setDbError(null);
     }, (error) => {
@@ -102,46 +119,6 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       unsubDocs();
     };
   }, []);
-
-  // Recalculate days until expiry
-  useEffect(() => {
-    if (!isLoaded || documents.length === 0) return;
-    
-    let changed = false;
-    const today = new Date();
-    
-    const updatedDocs = documents.map(doc => {
-      if (!doc.expiryDate) {
-        if (doc.daysUntilExpiry !== null || doc.status !== 'no_expiry') {
-          changed = true;
-          return { ...doc, daysUntilExpiry: null, status: 'no_expiry' as const };
-        }
-        return doc;
-      }
-
-      const days = differenceInDays(parseISO(doc.expiryDate), today);
-      let status: 'valid' | 'expiring_soon' | 'expired' = 'valid';
-      if (days < 0) status = 'expired';
-      else if (days <= 30) status = 'expiring_soon';
-      
-      if (doc.daysUntilExpiry !== days || doc.status !== status) {
-        changed = true;
-        return { ...doc, daysUntilExpiry: days, status };
-      }
-      return doc;
-    });
-
-    if (changed) {
-      setDocuments(updatedDocs);
-      updatedDocs.forEach(async d => {
-        try {
-          await setDoc(doc(db, `documents`, d.id), d);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.UPDATE, `documents/${d.id}`);
-        }
-      });
-    }
-  }, [documents, isLoaded]);
 
   // Auth functions kept for context compatibility but do nothing
   const signIn = async () => {};
