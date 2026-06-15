@@ -83,7 +83,7 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
       )}
 
       {/* Grid of Folders */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-2.5">
         {filteredEntities.map(entity => {
           const entityDocs = documents.filter(d => d.entityId === entity.id);
           const urgentDocs = entityDocs.filter(d => d.daysUntilExpiry <= 30).length;
@@ -92,13 +92,22 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
             <div 
               key={entity.id}
               onClick={() => onSelectEntity(entity)}
-              className="group bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 hover:border-indigo-500/50 rounded-xl p-5 cursor-pointer transition-all hover:shadow-lg hover:shadow-indigo-500/10"
+              className="group bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 hover:border-indigo-500/50 rounded-lg p-2.5 cursor-pointer transition-all hover:shadow-md hover:shadow-indigo-500/5 flex flex-col justify-between min-h-[125px] relative"
             >
-              <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-lg ${type === 'Truck' ? 'bg-blue-500/10 text-blue-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
-                  {type === 'Truck' ? <Truck size={24} /> : <Users size={24} />}
-                </div>
-                <div className="flex flex-col items-end gap-2">
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <div className="flex items-center space-x-1.5">
+                    <div className={`p-1.5 rounded ${type === 'Truck' ? 'bg-blue-500/10 text-blue-400' : 'bg-indigo-500/10 text-indigo-400'}`}>
+                      {type === 'Truck' ? <Truck size={14} /> : <Users size={14} />}
+                    </div>
+                    {urgentDocs > 0 && (
+                      <span className="flex h-2 w-2 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                      </span>
+                    )}
+                  </div>
+                  
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
@@ -106,29 +115,31 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
                         deleteEntity(entity.id);
                       }
                     }}
-                    className="p-2 text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors"
+                    className="p-1 text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 rounded transition-all md:opacity-0 group-hover:opacity-100 focus:opacity-100"
                     aria-label="Delete Entity"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={13} />
                   </button>
-                  {urgentDocs > 0 && (
-                    <div className="flex items-center space-x-1 text-xs font-medium text-amber-500 bg-amber-500/10 px-2 py-1 rounded-full animate-pulse">
-                      <AlertCircle size={12} />
-                      <span>{urgentDocs} Urgent</span>
-                    </div>
-                  )}
                 </div>
+                
+                <h3 className="text-xs font-bold text-white truncate" title={entity.name}>
+                  {entity.name}
+                </h3>
+                <p className="text-[10px] text-neutral-500 truncate mt-0.5" title={entity.id}>
+                  {entity.id}
+                </p>
               </div>
               
-              <h3 className="text-lg font-bold text-white mb-1 truncate">{entity.name}</h3>
-              <p className="text-sm text-neutral-500 mb-4">{entity.id}</p>
-              
-              <div className="flex items-center justify-between pt-4 border-t border-neutral-800/50 text-sm text-neutral-400">
-                <div className="flex items-center">
-                  <FolderOpen size={16} className="mr-2 opacity-70" />
-                  <span>{entityDocs.length} Documents</span>
+              <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-neutral-900 text-[10px] text-neutral-400">
+                <div className="flex items-center min-w-0">
+                  <FolderOpen size={11} className="mr-1 opacity-70 flex-shrink-0" />
+                  <span className="truncate">{entityDocs.length} Docs</span>
                 </div>
-                <span className="text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+                {urgentDocs > 0 && (
+                  <span className="text-[9px] text-amber-500 bg-amber-500/10 px-1 py-0.2 rounded font-medium">
+                    {urgentDocs} alert
+                  </span>
+                )}
               </div>
             </div>
           );

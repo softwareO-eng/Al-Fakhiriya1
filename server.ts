@@ -59,42 +59,63 @@ async function startServer() {
       // Extract base64 part if it contains a data URI scheme
       const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
-          { role: "user", parts: [
-              { text: prompt },
-              { inlineData: { data: base64Data, mimeType } }
-            ] 
-          }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              type: {
-                type: Type.STRING,
-                description: "Name, type, or classification of the document, e.g. Istamara, Driving Licence, etc."
-              },
-              issueDate: {
-                type: Type.STRING,
-                description: "Gregorian issue date in YYYY-MM-DD format, or null if not found"
-              },
-              expiryDate: {
-                type: Type.STRING,
-                description: "Gregorian expiry date in YYYY-MM-DD format, or null if not found"
-              },
-              hasNoExpiry: {
-                type: Type.BOOLEAN,
-                description: "True if the document doesn't have an expiry date or is lifetime/permanent"
+      let response = null;
+      let lastError = null;
+      const modelsToTry = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+
+      for (const modelName of modelsToTry) {
+        try {
+          console.log(`Attempting document extraction with model: ${modelName}`);
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+              { role: "user", parts: [
+                  { text: prompt },
+                  { inlineData: { data: base64Data, mimeType } }
+                ] 
               }
-            },
-            required: ["type", "hasNoExpiry"]
-          },
-          temperature: 0.1
+            ],
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  type: {
+                    type: Type.STRING,
+                    description: "Name, type, or classification of the document, e.g. Istamara, Driving Licence, etc."
+                  },
+                  issueDate: {
+                    type: Type.STRING,
+                    description: "Gregorian issue date in YYYY-MM-DD format, or null if not found"
+                  },
+                  expiryDate: {
+                    type: Type.STRING,
+                    description: "Gregorian expiry date in YYYY-MM-DD format, or null if not found"
+                  },
+                  hasNoExpiry: {
+                    type: Type.BOOLEAN,
+                    description: "True if the document doesn't have an expiry date or is lifetime/permanent"
+                  }
+                },
+                required: ["type", "hasNoExpiry"]
+              },
+              temperature: 0.1
+            }
+          });
+
+          if (response && response.text) {
+            console.log(`Document extraction succeeded with model: ${modelName}`);
+            break;
+          }
+        } catch (err: any) {
+          console.warn(`Model ${modelName} extraction attempt failed:`, err);
+          lastError = err;
         }
-      });
+      }
+
+      if (!response || !response.text) {
+        throw lastError || new Error("All extraction models failed to process the document.");
+      }
 
       const text = response.text || "{}";
       

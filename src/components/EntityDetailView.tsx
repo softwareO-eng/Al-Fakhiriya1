@@ -52,6 +52,47 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
   const [newExpiryDate, setNewExpiryDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [hasExpiry, setHasExpiry] = useState(true);
 
+  // Helper to compress images client-side before sending to server (prevents large payloads and failures)
+  const compressImage = (base64Str: string, maxWidth = 1200, maxHeight = 1200, quality = 0.7): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height *= maxWidth / width;
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width *= maxHeight / height;
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(base64Str);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressedDataUrl);
+      };
+      img.onerror = () => {
+        resolve(base64Str);
+      };
+    });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (!files.length) return;
@@ -73,13 +114,22 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
       
       try {
         const reader = new FileReader();
-        const base64data = await new Promise<string>((resolve, reject) => {
+        let base64data = await new Promise<string>((resolve, reject) => {
           reader.onloadend = () => resolve(reader.result as string);
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
         
         const mimeTypeToUse = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+        // Compress image client side if it is an image
+        if (mimeTypeToUse.startsWith('image/')) {
+          try {
+            base64data = await compressImage(base64data);
+          } catch (compressErr) {
+            console.warn("Client-side compression skipped/failed, using original image:", compressErr);
+          }
+        }
         
         const response = await fetch('/api/extract-document', {
           method: 'POST',
@@ -108,11 +158,41 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
           }
         }
         
-        // Helper to check valid date or fallback safely
+        // Helper to check valid date, convert Arabic digits, and fallback safely
         const parseGregorianDateSafely = (dateStr: string | null | undefined): Date | null => {
           if (!dateStr) return null;
-          const parsed = new Date(dateStr);
-          return isNaN(parsed.getTime()) ? null : parsed;
+
+          // Convert Eastern Arabic numerals to Western Arabic numerals
+          let cleanStr = dateStr.trim().replace(/[٠-٩]/g, (d) => {
+            return (d.charCodeAt(0) - 1632).toString();
+          }).replace(/[۰-۹]/g, (d) => {
+            return (d.charCodeAt(0) - 1776).toString();
+          });
+          
+          let parsed = new Date(cleanStr);
+          if (!isNaN(parsed.getTime())) return parsed;
+          
+          // Handle format like DD/MM/YYYY or DD-MM-YYYY
+          const matchSlash = cleanStr.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+          if (matchSlash) {
+            const d = parseInt(matchSlash[1], 10);
+            const m = parseInt(matchSlash[2], 10) - 1;
+            const y = parseInt(matchSlash[3], 10);
+            parsed = new Date(y, m, d);
+            if (!isNaN(parsed.getTime())) return parsed;
+          }
+          
+          // Handle YYYY/MM/DD or YYYY-MM-DD
+          const matchYearFirst = cleanStr.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+          if (matchYearFirst) {
+            const y = parseInt(matchYearFirst[1], 10);
+            const m = parseInt(matchYearFirst[2], 10) - 1;
+            const d = parseInt(matchYearFirst[3], 10);
+            parsed = new Date(y, m, d);
+            if (!isNaN(parsed.getTime())) return parsed;
+          }
+          
+          return null;
         };
 
         const rawIssueDateObj = parseGregorianDateSafely(data.issueDate);

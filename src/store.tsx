@@ -66,6 +66,8 @@ const FleetContext = createContext<FleetState | null>(null);
 export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
+  const [deletedEntityIds, setDeletedEntityIds] = useState<string[]>([]);
+  const [deletedDocumentIds, setDeletedDocumentIds] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const isSeedingInProgress = useRef(false);
@@ -194,6 +196,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteDocument = async (id: string) => {
+    setDeletedDocumentIds(prev => [...prev, id]);
     try {
       await deleteDoc(doc(db, `documents`, id));
     } catch (e) {
@@ -202,6 +205,8 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addEntity = async (entity: Entity) => {
+    // If we previously marked this entity ID as deleted, remove it from the deleted set
+    setDeletedEntityIds(prev => prev.filter(x => x !== entity.id));
     try {
       await setDoc(doc(db, `entities`, entity.id), entity);
     } catch (e) {
@@ -210,11 +215,13 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteEntity = async (id: string) => {
+    setDeletedEntityIds(prev => [...prev, id]);
     try {
       await deleteDoc(doc(db, `entities`, id));
       
       const relatedDocs = documents.filter(d => d.entityId === id);
       for (const d of relatedDocs) {
+        setDeletedDocumentIds(prev => [...prev, d.id]);
         await deleteDoc(doc(db, `documents`, d.id));
       }
     } catch (e) {
@@ -222,8 +229,11 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const activeEntities = entities.filter(e => !deletedEntityIds.includes(e.id));
+  const activeDocuments = documents.filter(d => !deletedDocumentIds.includes(d.id) && !deletedEntityIds.includes(d.entityId));
+
   return (
-    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user: { email: 'Live Sync' }, signIn, logOut, authError: null, dbError }}>
+    <FleetContext.Provider value={{ documents: activeDocuments, entities: activeEntities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user: { email: 'Live Sync' }, signIn, logOut, authError: null, dbError }}>
       {isLoaded ? children : (
         <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>
