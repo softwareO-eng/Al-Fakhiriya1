@@ -65,8 +65,15 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     const unsub = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (!user) {
-        setDocuments([]);
-        setEntities([]);
+        const localEnts = localStorage.getItem('fleet_entities_v2');
+        const localDocs = localStorage.getItem('fleet_documents_v2');
+        if (localEnts && localDocs) {
+          setEntities(JSON.parse(localEnts));
+          setDocuments(JSON.parse(localDocs));
+        } else {
+          setEntities(initialEntities);
+          setDocuments(initialDocs);
+        }
         setIsLoaded(true);
       }
     });
@@ -95,8 +102,8 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       snapshot.forEach(doc => docs.push(doc.data() as Document));
       
       // Migration from local storage on first load if cloud is empty
-      const localEnts = localStorage.getItem('fleet_entities');
-      const localDocs = localStorage.getItem('fleet_documents');
+      const localEnts = localStorage.getItem('fleet_entities_v2');
+      const localDocs = localStorage.getItem('fleet_documents_v2');
       
       if (docs.length === 0 && localEnts && localDocs) {
          try {
@@ -114,8 +121,8 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
              // Do not await to avoid blocking UI if network is spotty
              Promise.all(migrationPromises).catch(e => console.error(e));
 
-             localStorage.removeItem('fleet_entities');
-             localStorage.removeItem('fleet_documents');
+             localStorage.removeItem('fleet_entities_v2');
+             localStorage.removeItem('fleet_documents_v2');
              console.log("Migrated local data to Firebase");
            }
          } catch(e) {
@@ -140,7 +147,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
 
   // Recalculate days until expiry
   useEffect(() => {
-    if (!isLoaded || documents.length === 0 || !user) return;
+    if (!isLoaded || documents.length === 0) return;
     
     let changed = false;
     const today = new Date();
@@ -167,13 +174,18 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (changed) {
-      updatedDocs.forEach(async d => {
-        try {
-          await setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid });
-        } catch (e) {
-          handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/documents/${d.id}`);
-        }
-      });
+      setDocuments(updatedDocs);
+      if (user) {
+        updatedDocs.forEach(async d => {
+          try {
+            await setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid });
+          } catch (e) {
+            handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/documents/${d.id}`);
+          }
+        });
+      } else {
+        localStorage.setItem('fleet_documents_v2', JSON.stringify(updatedDocs));
+      }
     }
   }, [documents, isLoaded, user]);
 
@@ -202,9 +214,16 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const renewDocument = async (id: string, newExpiry: string) => {
-    if (!user) return;
     const d = documents.find(doc => doc.id === id);
     if (!d) return;
+    
+    if (!user) {
+      const newDocs = documents.map(doc => doc.id === id ? { ...doc, expiryDate: newExpiry } : doc);
+      setDocuments(newDocs);
+      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
+      return;
+    }
+    
     try {
       await setDoc(doc(db, `users/${user.uid}/documents`, id), { ...d, expiryDate: newExpiry, userId: user.uid });
     } catch (e) {
@@ -213,7 +232,13 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addDocument = async (docObj: Document) => {
-    if (!user) return;
+    if (!user) {
+      const newDocs = [...documents, docObj];
+      setDocuments(newDocs);
+      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
+      return;
+    }
+    
     try {
       await setDoc(doc(db, `users/${user.uid}/documents`, docObj.id), { ...docObj, userId: user.uid });
     } catch (e) {
@@ -222,7 +247,13 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteDocument = async (id: string) => {
-    if (!user) return;
+    if (!user) {
+      const newDocs = documents.filter(doc => doc.id !== id);
+      setDocuments(newDocs);
+      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
+      return;
+    }
+    
     try {
       await deleteDoc(doc(db, `users/${user.uid}/documents`, id));
     } catch (e) {
@@ -231,7 +262,13 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addEntity = async (entity: Entity) => {
-    if (!user) return;
+    if (!user) {
+      const newEntities = [...entities, entity];
+      setEntities(newEntities);
+      localStorage.setItem('fleet_entities_v2', JSON.stringify(newEntities));
+      return;
+    }
+    
     try {
       await setDoc(doc(db, `users/${user.uid}/entities`, entity.id), { ...entity, userId: user.uid });
     } catch (e) {
@@ -240,7 +277,17 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteEntity = async (id: string) => {
-    if (!user) return;
+    if (!user) {
+      const newEntities = entities.filter(ent => ent.id !== id);
+      setEntities(newEntities);
+      localStorage.setItem('fleet_entities_v2', JSON.stringify(newEntities));
+      
+      const newDocs = documents.filter(doc => doc.entityId !== id);
+      setDocuments(newDocs);
+      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
+      return;
+    }
+    
     try {
       await deleteDoc(doc(db, `users/${user.uid}/entities`, id));
       
