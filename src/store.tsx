@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { mockDocuments as initialDocs, mockEntities as initialEntities, Document, Entity } from './data';
 import { differenceInDays, parseISO } from 'date-fns';
 import { db } from './firebase';
@@ -68,38 +68,57 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
+  const isSeedingInProgress = useRef(false);
 
   useEffect(() => {
-    const unsubConfig = onSnapshot(doc(db, 'system', 'config'), (snapshot) => {
-      const configData = snapshot.data();
-      const hasSeeded = configData?.seeded === true;
-      
-      // If system has never been seeded, do it now!
-      if (!hasSeeded) {
-        setDoc(doc(db, 'system', 'config'), { seeded: true }).then(() => {
-          console.log("Seeding database initially...");
-          const migrationPromises = [];
-          for (const e of initialEntities) {
-            migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
-          }
-          for (const d of initialDocs) {
-            migrationPromises.push(setDoc(doc(db, 'documents', d.id), d));
-          }
-          return Promise.all(migrationPromises);
-        }).then(() => {
-          console.log("Initial seeding complete!");
-        }).catch (e => {
-          console.error("Migration / Seeding failed", e);
-        });
-      }
-    }, (error) => {
-      console.error("Config check failed", error);
-    });
+    let entitiesLoaded = false;
+    let docsLoaded = false;
 
     const unsubEntities = onSnapshot(collection(db, 'entities'), (snapshot) => {
       const ents: Entity[] = [];
-      snapshot.forEach(doc => ents.push(doc.data() as Entity));
+      let hasSeeded = false;
+
+      snapshot.forEach(doc => {
+        const data = doc.data() as Entity;
+        if (data.id === 'sys_config') {
+          hasSeeded = true;
+        } else {
+          ents.push(data);
+        }
+      });
+
+      // If 'sys_config' is not there, we seed the database initially!
+      if (!hasSeeded && !isSeedingInProgress.current) {
+        isSeedingInProgress.current = true;
+        console.log("Seeding database initially...");
+        
+        const migrationPromises = [];
+        // Put the config doc under the authorized entities collection
+        migrationPromises.push(setDoc(doc(db, 'entities', 'sys_config'), { id: 'sys_config', name: 'System Seed Checked', type: 'Truck' as any }));
+        
+        for (const e of initialEntities) {
+          migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
+        }
+        for (const d of initialDocs) {
+          migrationPromises.push(setDoc(doc(db, 'documents', d.id), d));
+        }
+
+        Promise.all(migrationPromises)
+          .then(() => {
+            console.log("Initial seeding complete!");
+            isSeedingInProgress.current = false;
+          })
+          .catch(e => {
+            console.error("Migration / Seeding failed", e);
+            isSeedingInProgress.current = false;
+          });
+      }
+
       setEntities(ents);
+      entitiesLoaded = true;
+      if (entitiesLoaded && docsLoaded) {
+        setIsLoaded(true);
+      }
       setDbError(null);
     }, (error) => {
       const errMsg = handleFirestoreError(error, OperationType.LIST, 'entities');
@@ -109,13 +128,21 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
 
     const unsubDocs = onSnapshot(collection(db, 'documents'), (snapshot) => {
       const docs: Document[] = [];
-      snapshot.forEach(doc => docs.push(doc.data() as Document));
+      snapshot.forEach(doc => {
+        const data = doc.data() as Document;
+        if (data.id !== 'sys_config') {
+          docs.push(data);
+        }
+      });
       
       // Compute expiry properties dynamically in memory for maximum performance
       const computedDocs = docs.map(computeExpiryProperties);
 
       setDocuments(computedDocs);
-      setIsLoaded(true);
+      docsLoaded = true;
+      if (entitiesLoaded && docsLoaded) {
+        setIsLoaded(true);
+      }
       setDbError(null);
     }, (error) => {
       const errMsg = handleFirestoreError(error, OperationType.LIST, 'documents');
@@ -124,7 +151,6 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      unsubConfig();
       unsubEntities();
       unsubDocs();
     };
