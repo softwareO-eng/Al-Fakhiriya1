@@ -12,5 +12,9 @@ service cloud.firestore {
     match /documents/{document=**} {
       allow read, write: if true;
     }
+
+    match /system/{document=**} {
+      allow read, write: if true;
+    }
   }
 }

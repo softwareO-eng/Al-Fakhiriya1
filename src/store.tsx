@@ -70,6 +70,32 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
+    const unsubConfig = onSnapshot(doc(db, 'system', 'config'), (snapshot) => {
+      const configData = snapshot.data();
+      const hasSeeded = configData?.seeded === true;
+      
+      // If system has never been seeded, do it now!
+      if (!hasSeeded) {
+        setDoc(doc(db, 'system', 'config'), { seeded: true }).then(() => {
+          console.log("Seeding database initially...");
+          const migrationPromises = [];
+          for (const e of initialEntities) {
+            migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
+          }
+          for (const d of initialDocs) {
+            migrationPromises.push(setDoc(doc(db, 'documents', d.id), d));
+          }
+          return Promise.all(migrationPromises);
+        }).then(() => {
+          console.log("Initial seeding complete!");
+        }).catch (e => {
+          console.error("Migration / Seeding failed", e);
+        });
+      }
+    }, (error) => {
+      console.error("Config check failed", error);
+    });
+
     const unsubEntities = onSnapshot(collection(db, 'entities'), (snapshot) => {
       const ents: Entity[] = [];
       snapshot.forEach(doc => ents.push(doc.data() as Entity));
@@ -81,27 +107,10 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       setIsLoaded(true);
     });
 
-    const unsubDocs = onSnapshot(collection(db, 'documents'), async (snapshot) => {
+    const unsubDocs = onSnapshot(collection(db, 'documents'), (snapshot) => {
       const docs: Document[] = [];
       snapshot.forEach(doc => docs.push(doc.data() as Document));
       
-      // Seed data if empty AND we haven't seeded before (one-shot per browser session to prevent reappearing on delete)
-      if (docs.length === 0 && localStorage.getItem('fleet_seeded_v3') !== 'true') {
-         try {
-           localStorage.setItem('fleet_seeded_v3', 'true');
-           const migrationPromises = [];
-           for (const e of initialEntities) {
-             migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
-           }
-           for (const d of initialDocs) {
-             migrationPromises.push(setDoc(doc(db, 'documents', d.id), d));
-           }
-           Promise.all(migrationPromises).catch(e => console.error("Failed to seed initial data", e));
-         } catch(e) {
-           console.error("Migration failed", e);
-         }
-      }
-
       // Compute expiry properties dynamically in memory for maximum performance
       const computedDocs = docs.map(computeExpiryProperties);
 
@@ -115,6 +124,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      unsubConfig();
       unsubEntities();
       unsubDocs();
     };
