@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { mockDocuments as initialDocs, mockEntities as initialEntities, Document, Entity } from './data';
 import { differenceInDays, parseISO } from 'date-fns';
-import { db, auth } from './firebase';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
-import { signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import { db } from './firebase';
+import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 enum OperationType {
   CREATE = 'create',
@@ -25,9 +24,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
+      userId: 'public_session',
     },
     operationType,
     path
@@ -44,7 +41,7 @@ interface FleetState {
   deleteDocument: (id: string) => void;
   addEntity: (entity: Entity) => void;
   deleteEntity: (id: string) => void;
-  user: User | null;
+  user: any | null;
   signIn: () => Promise<void>;
   logOut: () => Promise<void>;
   authError: string | null;
@@ -57,78 +54,35 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUser(user);
-      } else {
-        signInAnonymously(auth).catch(e => {
-          console.error("Auto sign in failed", e);
-          const localEnts = localStorage.getItem('fleet_entities_v2');
-          const localDocs = localStorage.getItem('fleet_documents_v2');
-          if (localEnts && localDocs) {
-            setEntities(JSON.parse(localEnts));
-            setDocuments(JSON.parse(localDocs));
-          } else {
-            setEntities(initialEntities);
-            setDocuments(initialDocs);
-          }
-          setIsLoaded(true);
-        });
-      }
-    });
-
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const unsubEntities = onSnapshot(collection(db, `users/${user.uid}/entities`), (snapshot) => {
+    const unsubEntities = onSnapshot(collection(db, 'entities'), (snapshot) => {
       const ents: Entity[] = [];
       snapshot.forEach(doc => ents.push(doc.data() as Entity));
       setEntities(ents);
       setDbError(null);
     }, (error) => {
-      const errMsg = handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/entities`);
+      const errMsg = handleFirestoreError(error, OperationType.LIST, 'entities');
       setDbError(errMsg);
       setIsLoaded(true);
     });
 
-    const unsubDocs = onSnapshot(collection(db, `users/${user.uid}/documents`), async (snapshot) => {
+    const unsubDocs = onSnapshot(collection(db, 'documents'), async (snapshot) => {
       const docs: Document[] = [];
       snapshot.forEach(doc => docs.push(doc.data() as Document));
       
-      // Migration from local storage on first load if cloud is empty
-      const localEnts = localStorage.getItem('fleet_entities_v2');
-      const localDocs = localStorage.getItem('fleet_documents_v2');
-      
-      if (docs.length === 0 && localEnts && localDocs) {
+      // Seed data if empty
+      if (docs.length === 0) {
          try {
-           const parsedEnts = JSON.parse(localEnts) as Entity[];
-           const parsedDocs = JSON.parse(localDocs) as Document[];
-           
-           if (parsedEnts.length > 0 || parsedDocs.length > 0) {
-             const migrationPromises = [];
-             for (const e of parsedEnts) {
-               migrationPromises.push(setDoc(doc(db, `users/${user.uid}/entities`, e.id), { ...e, userId: user.uid }));
-             }
-             for (const d of parsedDocs) {
-               migrationPromises.push(setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid }));
-             }
-             // Do not await to avoid blocking UI if network is spotty
-             Promise.all(migrationPromises).catch(e => console.error(e));
-
-             localStorage.removeItem('fleet_entities_v2');
-             localStorage.removeItem('fleet_documents_v2');
-             console.log("Migrated local data to Firebase");
+           const migrationPromises = [];
+           for (const e of initialEntities) {
+             migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
            }
+           for (const d of initialDocs) {
+             migrationPromises.push(setDoc(doc(db, 'documents', d.id), d));
+           }
+           Promise.all(migrationPromises).catch(e => console.error("Failed to seed initial data", e));
          } catch(e) {
            console.error("Migration failed", e);
          }
@@ -138,7 +92,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       setIsLoaded(true);
       setDbError(null);
     }, (error) => {
-      const errMsg = handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/documents`);
+      const errMsg = handleFirestoreError(error, OperationType.LIST, 'documents');
       setDbError(errMsg);
       setIsLoaded(true);
     });
@@ -147,7 +101,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
       unsubEntities();
       unsubDocs();
     };
-  }, [user]);
+  }, []);
 
   // Recalculate days until expiry
   useEffect(() => {
@@ -179,116 +133,62 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
 
     if (changed) {
       setDocuments(updatedDocs);
-      if (user) {
-        updatedDocs.forEach(async d => {
-          try {
-            await setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid });
-          } catch (e) {
-            handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/documents/${d.id}`);
-          }
-        });
-      } else {
-        localStorage.setItem('fleet_documents_v2', JSON.stringify(updatedDocs));
-      }
+      updatedDocs.forEach(async d => {
+        try {
+          await setDoc(doc(db, `documents`, d.id), d);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.UPDATE, `documents/${d.id}`);
+        }
+      });
     }
-  }, [documents, isLoaded, user]);
+  }, [documents, isLoaded]);
 
-  const signIn = async () => {
-    try {
-      setAuthError(null);
-      await signInAnonymously(auth);
-    } catch (e: any) {
-      console.error("Sign in error:", e);
-      setAuthError(e.message || "Failed to sign in anonymously.");
-    }
-  };
-
-  const logOut = async () => {
-    // Cannot log out of anonymous easily without losing access, but we can do auth.signOut()
-    await auth.signOut();
-  };
+  // Auth functions kept for context compatibility but do nothing
+  const signIn = async () => {};
+  const logOut = async () => {};
 
   const renewDocument = async (id: string, newExpiry: string) => {
     const d = documents.find(doc => doc.id === id);
     if (!d) return;
     
-    if (!user) {
-      const newDocs = documents.map(doc => doc.id === id ? { ...doc, expiryDate: newExpiry } : doc);
-      setDocuments(newDocs);
-      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
-      return;
-    }
-    
     try {
-      await setDoc(doc(db, `users/${user.uid}/documents`, id), { ...d, expiryDate: newExpiry, userId: user.uid });
+      await setDoc(doc(db, `documents`, id), { ...d, expiryDate: newExpiry });
     } catch (e) {
       console.error(e);
     }
   };
 
   const addDocument = async (docObj: Document) => {
-    if (!user) {
-      const newDocs = [...documents, docObj];
-      setDocuments(newDocs);
-      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
-      return;
-    }
-    
     try {
-      await setDoc(doc(db, `users/${user.uid}/documents`, docObj.id), { ...docObj, userId: user.uid });
+      await setDoc(doc(db, `documents`, docObj.id), docObj);
     } catch (e) {
-      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/documents/${docObj.id}`);
+      handleFirestoreError(e, OperationType.CREATE, `documents/${docObj.id}`);
     }
   };
 
   const deleteDocument = async (id: string) => {
-    if (!user) {
-      const newDocs = documents.filter(doc => doc.id !== id);
-      setDocuments(newDocs);
-      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
-      return;
-    }
-    
     try {
-      await deleteDoc(doc(db, `users/${user.uid}/documents`, id));
+      await deleteDoc(doc(db, `documents`, id));
     } catch (e) {
        console.error(e);
     }
   };
 
   const addEntity = async (entity: Entity) => {
-    if (!user) {
-      const newEntities = [...entities, entity];
-      setEntities(newEntities);
-      localStorage.setItem('fleet_entities_v2', JSON.stringify(newEntities));
-      return;
-    }
-    
     try {
-      await setDoc(doc(db, `users/${user.uid}/entities`, entity.id), { ...entity, userId: user.uid });
+      await setDoc(doc(db, `entities`, entity.id), entity);
     } catch (e) {
-      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/entities/${entity.id}`);
+      handleFirestoreError(e, OperationType.CREATE, `entities/${entity.id}`);
     }
   };
 
   const deleteEntity = async (id: string) => {
-    if (!user) {
-      const newEntities = entities.filter(ent => ent.id !== id);
-      setEntities(newEntities);
-      localStorage.setItem('fleet_entities_v2', JSON.stringify(newEntities));
-      
-      const newDocs = documents.filter(doc => doc.entityId !== id);
-      setDocuments(newDocs);
-      localStorage.setItem('fleet_documents_v2', JSON.stringify(newDocs));
-      return;
-    }
-    
     try {
-      await deleteDoc(doc(db, `users/${user.uid}/entities`, id));
+      await deleteDoc(doc(db, `entities`, id));
       
       const relatedDocs = documents.filter(d => d.entityId === id);
       for (const d of relatedDocs) {
-        await deleteDoc(doc(db, `users/${user.uid}/documents`, d.id));
+        await deleteDoc(doc(db, `documents`, d.id));
       }
     } catch (e) {
       console.error(e);
@@ -296,7 +196,7 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut, authError, dbError }}>
+    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user: { email: 'Live Sync' }, signIn, logOut, authError: null, dbError }}>
       {isLoaded ? children : (
         <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center p-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mb-4"></div>

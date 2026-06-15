@@ -146,15 +146,7 @@ export default function App() {
 
         {/* Dynamic View Context */}
         <div className="flex-1 overflow-auto bg-neutral-900">
-          {dbError && (
-            <div className="m-8 p-4 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-400 text-sm flex items-start">
-              <AlertTriangle className="h-5 w-5 mr-3 shrink-0" />
-              <div>
-                <h3 className="font-bold text-base mb-1">Database Access Error</h3>
-                <p>Firestore security rules might not be deployed. Please deploy your rules using the AI coding assistant or check the Firebase console. Details: {dbError}</p>
-              </div>
-            </div>
-          )}
+          {/* DB error banner removed for clean UI */}
           {activeView === 'Dashboard' && <Dashboard onViewAll={() => navigateTo('Trucks')} />}
           {activeView === 'Trucks' && <EntitiesView type="Truck" onSelectEntity={handleSelectEntity} />}
           {activeView === 'Drivers' && <EntitiesView type="Driver" onSelectEntity={handleSelectEntity} />}
