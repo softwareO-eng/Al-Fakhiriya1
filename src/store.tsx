@@ -62,16 +62,22 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
+    const timeout = setTimeout(() => setIsLoaded(true), 1500);
+
     const unsub = onAuthStateChanged(auth, (user) => {
+      clearTimeout(timeout);
       setUser(user);
       if (!user) {
         setDocuments([]);
         setEntities([]);
-        setIsLoaded(true);
       }
+      setIsLoaded(true);
     });
 
-    return unsub;
+    return () => {
+      clearTimeout(timeout);
+      unsub();
+    };
   }, []);
 
   useEffect(() => {
