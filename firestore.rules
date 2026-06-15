@@ -5,47 +5,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
     match /users/{userId}/entities/{entityId} {
-      function isValidEntity(data) {
-        return data.keys().hasAll(['id', 'name', 'type', 'userId']) &&
-               data.id is string && data.id.size() <= 128 &&
-               data.name is string && data.name.size() <= 128 &&
-               data.type in ['Truck', 'Driver'] &&
-               data.userId == request.auth.uid;
-      }
-
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(entityId) && isValidEntity(request.resource.data);
-      allow update: if isSignedIn() && request.auth.uid == userId && isValidId(entityId) && isValidEntity(request.resource.data);
-      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(entityId);
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     match /users/{userId}/documents/{documentId} {
-      function isValidDocument(data) {
-        return data.keys().hasAll(['id', 'name', 'type', 'entityId', 'entityName', 'entityType', 'issueDate', 'status', 'userId']) &&
-               data.id is string && data.id.size() <= 128 &&
-               data.name is string && data.name.size() <= 256 &&
-               data.type is string && data.type.size() <= 128 &&
-               data.entityId is string && data.entityId.size() <= 128 &&
-               data.entityName is string && data.entityName.size() <= 128 &&
-               data.entityType is string && data.entityType.size() <= 128 &&
-               data.issueDate is string && data.issueDate.size() <= 64 &&
-               data.status is string && data.status.size() <= 64 &&
-               data.userId == request.auth.uid;
-      }
-
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(documentId) && isValidDocument(request.resource.data);
-      allow update: if isSignedIn() && request.auth.uid == userId && isValidId(documentId) && isValidDocument(request.resource.data);
-      allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(documentId);
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
