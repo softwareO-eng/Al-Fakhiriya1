@@ -108,9 +108,19 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
           }
         }
         
-        const issueDate = data.issueDate ? new Date(data.issueDate).toISOString() : new Date().toISOString();
-        const hasExpiry = !data.hasNoExpiry && !!data.expiryDate;
-        const expiryDate = hasExpiry ? new Date(data.expiryDate).toISOString() : null;
+        // Helper to check valid date or fallback safely
+        const parseGregorianDateSafely = (dateStr: string | null | undefined): Date | null => {
+          if (!dateStr) return null;
+          const parsed = new Date(dateStr);
+          return isNaN(parsed.getTime()) ? null : parsed;
+        };
+
+        const rawIssueDateObj = parseGregorianDateSafely(data.issueDate);
+        const issueDate = rawIssueDateObj ? rawIssueDateObj.toISOString() : new Date().toISOString();
+        
+        const rawExpiryDateObj = parseGregorianDateSafely(data.expiryDate);
+        const hasExpiry = !data.hasNoExpiry && !!rawExpiryDateObj;
+        const expiryDate = hasExpiry && rawExpiryDateObj ? rawExpiryDateObj.toISOString() : null;
         
         addDocument({
           id: `DOC-${Math.floor(Math.random() * 10000)}`,

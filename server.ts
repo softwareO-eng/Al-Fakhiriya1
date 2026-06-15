@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {
@@ -42,7 +42,7 @@ async function startServer() {
       const prompt = `
         You are an advanced multilingual OCR scanner for a professional fleet management system.
         The document belongs to a: ${entityType || 'Truck'} (Truck or Driver).
-        Your task is to scan the provided document image or PDF file and extract high-precision dates and names.
+        Your task is to scan the provided document image or PDF file and extract high-precision expiry dates, issue dates, and document type.
 
         Please analyze the text carefully:
         1. "type": Identify the name or type of the document (such as "Istamara", "Driving Licence", "Medical Certificate", "Insurance", "Melem Card", "Safety Sticker", "5th Wheel Expiry"). We support both English and Arabic (e.g. "إستمارة", "رخصة السير", "رخصة القيادة", "التأمين").
@@ -54,21 +54,13 @@ async function startServer() {
         - Documents often list both Hijri (Islamic, e.g. 1445 or 1446 or 1447) and Gregorian dates.
         - You MUST isolate and extract the GREGORIAN date for the "issueDate" and "expiryDate"! (For example: if a date is 1447-06-15 and another is 2026-06-15, choose 2026-06-15).
         - If only Hijri dates are present, convert or translate the Hijri date to its corresponding Gregorian date format in YYYY-MM-DD (e.g. 1446-12-11 corresponds to approx June 2025).
-
-        IMPORTANT: Your output must be a clean, valid and raw JSON object. Do not include any explanation, conversational text, or markdown formatting blocks (e.g. do NOT wrap in \`\`\`json). Output exactly the JSON object matching this schema:
-        {
-          "type": "Name or classification of the document",
-          "issueDate": "YYYY-MM-DD or null",
-          "expiryDate": "YYYY-MM-DD or null",
-          "hasNoExpiry": false
-        }
       `;
 
       // Extract base64 part if it contains a data URI scheme
       const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: [
           { role: "user", parts: [
               { text: prompt },
@@ -78,6 +70,28 @@ async function startServer() {
         ],
         config: {
           responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              type: {
+                type: Type.STRING,
+                description: "Name, type, or classification of the document, e.g. Istamara, Driving Licence, etc."
+              },
+              issueDate: {
+                type: Type.STRING,
+                description: "Gregorian issue date in YYYY-MM-DD format, or null if not found"
+              },
+              expiryDate: {
+                type: Type.STRING,
+                description: "Gregorian expiry date in YYYY-MM-DD format, or null if not found"
+              },
+              hasNoExpiry: {
+                type: Type.BOOLEAN,
+                description: "True if the document doesn't have an expiry date or is lifetime/permanent"
+              }
+            },
+            required: ["type", "hasNoExpiry"]
+          },
           temperature: 0.1
         }
       });
