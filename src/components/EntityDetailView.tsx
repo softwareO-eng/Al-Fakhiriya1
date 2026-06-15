@@ -44,6 +44,7 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
 
   const suggestedTypes = entity.type === 'Truck' ? TRUCK_DOC_TYPES : DRIVER_DOC_TYPES;
 
+  const [activeUploads, setActiveUploads] = useState<{ id: string, name: string, status: 'scanning' | 'success' | 'failed', error?: string }[]>([]);
   const [newType, setNewType] = useState(suggestedTypes[0]);
   const [isCustomType, setIsCustomType] = useState(false);
   const [customType, setCustomType] = useState('');
@@ -55,10 +56,19 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
     const files = Array.from(e.target.files || []) as File[];
     if (!files.length) return;
 
+    // Create unique IDs and initialize state
+    const newUploads = files.map((file, idx) => ({
+      id: `${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+      name: file.name,
+      status: 'scanning' as const
+    }));
+
+    setActiveUploads(prev => [...newUploads, ...prev]);
     setScanProgress({ current: 0, total: files.length });
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      const uploadId = newUploads[i].id;
       setScanProgress({ current: i + 1, total: files.length });
       
       try {
@@ -69,12 +79,14 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
           reader.readAsDataURL(file);
         });
         
+        const mimeTypeToUse = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+        
         const response = await fetch('/api/extract-document', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             fileData: base64data,
-            mimeType: file.type,
+            mimeType: mimeTypeToUse,
             entityType: entity.type
           })
         });
@@ -113,15 +125,19 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
           daysUntilExpiry: hasExpiry ? 0 : null,
         } as Document);
 
+        // Update active upload status to success
+        setActiveUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'success' } : u));
+
       } catch (error: any) {
         console.error('OCR Error:', error);
-        alert(`Failed to extract document data automatically for ${file.name}.`);
+        
+        // Update active upload status to failed, recording the error
+        setActiveUploads(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'failed', error: error.message || 'Processing failed' } : u));
       }
     }
 
     setScanProgress(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    setIsAdding(false);
   };
 
   const handleAdd = (e: React.FormEvent) => {
@@ -226,6 +242,54 @@ export default function EntityDetailView({ entity, onBack }: EntityDetailViewPro
               </label>
             </div>
           </div>
+
+          {activeUploads.length > 0 && (
+            <div className="mb-6 p-4 bg-neutral-900 border border-neutral-800 rounded-lg animate-in fade-in duration-250">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+                  AI Scan & Extraction Status ({activeUploads.filter(u => u.status === 'success').length}/{activeUploads.length})
+                </h3>
+                <button 
+                  type="button"
+                  onClick={() => setActiveUploads([])}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+                >
+                  Clear Scanner Logs
+                </button>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                {activeUploads.map((fileStatus) => (
+                  <div key={fileStatus.id} className="flex items-center justify-between p-2.5 rounded bg-neutral-950 border border-neutral-800/60 text-sm">
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <div className={`h-2 w-2 rounded-full ${
+                        fileStatus.status === 'scanning' ? 'bg-amber-500 animate-pulse' :
+                        fileStatus.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'
+                      }`} />
+                      <span className="text-neutral-300 font-medium truncate max-w-xs sm:max-w-md">{fileStatus.name}</span>
+                    </div>
+                    <div>
+                      {fileStatus.status === 'scanning' && (
+                        <span className="text-xs text-amber-400 font-medium flex items-center">
+                          <Loader2 size={12} className="animate-spin mr-1.5" />
+                          Extracting Expiries...
+                        </span>
+                      )}
+                      {fileStatus.status === 'success' && (
+                        <span className="text-xs text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/10">
+                          Ready & Saved
+                        </span>
+                      )}
+                      {fileStatus.status === 'failed' && (
+                        <span className="text-xs text-rose-400 font-medium bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/10" title={fileStatus.error}>
+                          Failed: {fileStatus.error || "Could not parse details"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
             <div className={`md:col-span-2 flex flex-col sm:flex-row gap-4`}>

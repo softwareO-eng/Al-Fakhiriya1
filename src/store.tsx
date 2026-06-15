@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { mockDocuments as initialDocs, mockEntities as initialEntities, Document, Entity } from './data';
 import { differenceInDays, parseISO } from 'date-fns';
 import { db } from './firebase';
-import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDoc } from 'firebase/firestore';
 
 enum OperationType {
   CREATE = 'create',
@@ -74,45 +74,59 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     let entitiesLoaded = false;
     let docsLoaded = false;
 
-    const unsubEntities = onSnapshot(collection(db, 'entities'), (snapshot) => {
-      const ents: Entity[] = [];
-      let hasSeeded = false;
+    const checkAndSeed = async () => {
+      if (isSeedingInProgress.current) return;
 
-      snapshot.forEach(doc => {
-        const data = doc.data() as Entity;
-        if (data.id === 'sys_config') {
-          hasSeeded = true;
-        } else {
-          ents.push(data);
+      if (localStorage.getItem('fleetsync_seeded_v5') === 'true') {
+        return;
+      }
+
+      try {
+        const configDocRef = doc(db, 'system', 'config');
+        const configSnap = await getDoc(configDocRef);
+
+        if (configSnap.exists() && configSnap.data()?.seeded === true) {
+          localStorage.setItem('fleetsync_seeded_v5', 'true');
+          return;
         }
-      });
 
-      // If 'sys_config' is not there, we seed the database initially!
-      if (!hasSeeded && !isSeedingInProgress.current) {
         isSeedingInProgress.current = true;
         console.log("Seeding database initially...");
-        
+
+        const docsToSeed = initialDocs;
+        const entitiesToSeed = initialEntities;
+
         const migrationPromises = [];
-        // Put the config doc under the authorized entities collection
-        migrationPromises.push(setDoc(doc(db, 'entities', 'sys_config'), { id: 'sys_config', name: 'System Seed Checked', type: 'Truck' as any }));
-        
-        for (const e of initialEntities) {
+        migrationPromises.push(setDoc(configDocRef, { seeded: true }));
+
+        for (const e of entitiesToSeed) {
           migrationPromises.push(setDoc(doc(db, 'entities', e.id), e));
         }
-        for (const d of initialDocs) {
+        for (const d of docsToSeed) {
           migrationPromises.push(setDoc(doc(db, 'documents', d.id), d));
         }
 
-        Promise.all(migrationPromises)
-          .then(() => {
-            console.log("Initial seeding complete!");
-            isSeedingInProgress.current = false;
-          })
-          .catch(e => {
-            console.error("Migration / Seeding failed", e);
-            isSeedingInProgress.current = false;
-          });
+        await Promise.all(migrationPromises);
+        console.log("Initial seeding complete!");
+        localStorage.setItem('fleetsync_seeded_v5', 'true');
+        isSeedingInProgress.current = false;
+      } catch (e) {
+        console.error("Migration / Seeding failed:", e);
+        isSeedingInProgress.current = false;
       }
+    };
+
+    checkAndSeed();
+
+    const unsubEntities = onSnapshot(collection(db, 'entities'), (snapshot) => {
+      const ents: Entity[] = [];
+
+      snapshot.forEach(doc => {
+        const data = doc.data() as Entity;
+        if (data.id !== 'sys_config') {
+          ents.push(data);
+        }
+      });
 
       setEntities(ents);
       entitiesLoaded = true;

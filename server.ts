@@ -5,7 +5,14 @@ import { GoogleGenAI } from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {
-  ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
 } else {
   console.warn("GEMINI_API_KEY not found. Document OCR extraction will fail.");
 }
@@ -33,15 +40,27 @@ async function startServer() {
       }
 
       const prompt = `
-        You are a document OCR assistant for fleet management.
-        The entity type is ${entityType} (Truck or Driver).
-        Look at this document and extract its key details.
-        Respond ONLY with a valid JSON object matching this schema:
+        You are an advanced multilingual OCR scanner for a professional fleet management system.
+        The document belongs to a: ${entityType || 'Truck'} (Truck or Driver).
+        Your task is to scan the provided document image or PDF file and extract high-precision dates and names.
+
+        Please analyze the text carefully:
+        1. "type": Identify the name or type of the document (such as "Istamara", "Driving Licence", "Medical Certificate", "Insurance", "Melem Card", "Safety Sticker", "5th Wheel Expiry"). We support both English and Arabic (e.g. "إستمارة", "رخصة السير", "رخصة القيادة", "التأمين").
+        2. "issueDate": Find the document's Issue Date. Specify in "YYYY-MM-DD" format. Return null if not explicitly found.
+        3. "expiryDate": Find the Expiry / Expiration Date (e.g. "Expiry", "Expires on", "End Date", "تاريخ الانتهاء", "تاريخ انتهاء", "ينتهي في", "صالح لغاية"). Specify in "YYYY-MM-DD" format. Return null if not explicitly found.
+        4. "hasNoExpiry": Set to true if there is zero expiry or if it is a lifetime/permanent document, otherwise false.
+
+        CRITICAL FOR GULF DOCUMENTS (e.g. Saudi Arabia, UAE, etc.):
+        - Documents often list both Hijri (Islamic, e.g. 1445 or 1446 or 1447) and Gregorian dates.
+        - You MUST isolate and extract the GREGORIAN date for the "issueDate" and "expiryDate"! (For example: if a date is 1447-06-15 and another is 2026-06-15, choose 2026-06-15).
+        - If only Hijri dates are present, convert or translate the Hijri date to its corresponding Gregorian date format in YYYY-MM-DD (e.g. 1446-12-11 corresponds to approx June 2025).
+
+        IMPORTANT: Your output must be a clean, valid and raw JSON object. Do not include any explanation, conversational text, or markdown formatting blocks (e.g. do NOT wrap in \`\`\`json). Output exactly the JSON object matching this schema:
         {
-          "type": "Name or Type of document (e.g. Istamara, Driving Licence, Medical Certificate, Insurance)",
-          "issueDate": "YYYY-MM-DD or null if not found",
-          "expiryDate": "YYYY-MM-DD or null if it has no expiry or not found",
-          "hasNoExpiry": boolean (true if it clearly states lifetime or no expiry, otherwise false)
+          "type": "Name or classification of the document",
+          "issueDate": "YYYY-MM-DD or null",
+          "expiryDate": "YYYY-MM-DD or null",
+          "hasNoExpiry": false
         }
       `;
 
@@ -49,7 +68,7 @@ async function startServer() {
       const base64Data = fileData.includes(',') ? fileData.split(',')[1] : fileData;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: [
           { role: "user", parts: [
               { text: prompt },
@@ -64,7 +83,21 @@ async function startServer() {
       });
 
       const text = response.text || "{}";
-      const parsed = JSON.parse(text);
+      
+      // Clean up markdown block if model adds them anyway
+      let cleanedText = text.trim();
+      if (cleanedText.startsWith('```')) {
+        cleanedText = cleanedText.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/, '').trim();
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(cleanedText);
+      } catch (parseErr) {
+        console.error("JSON parsing failed for AI output:", text);
+        res.status(500).json({ error: "The AI returned an invalid response structure. Please try again." });
+        return;
+      }
 
       res.json(parsed);
     } catch (error: any) {
