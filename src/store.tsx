@@ -1,6 +1,40 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { mockDocuments as initialDocs, mockEntities as initialEntities, Document, Entity } from './data';
 import { differenceInDays, parseISO } from 'date-fns';
+import { db, auth } from './firebase';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, getDocs } from 'firebase/firestore';
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, User } from 'firebase/auth';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: any;
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 interface FleetState {
   documents: Document[];
@@ -10,6 +44,9 @@ interface FleetState {
   deleteDocument: (id: string) => void;
   addEntity: (entity: Entity) => void;
   deleteEntity: (id: string) => void;
+  user: User | null;
+  signIn: () => Promise<void>;
+  logOut: () => Promise<void>;
 }
 
 const FleetContext = createContext<FleetState | null>(null);
@@ -18,30 +55,77 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
 
-  // Initialize from LocalStorage
   useEffect(() => {
-    const savedDocs = localStorage.getItem('fleet_documents');
-    const savedEntities = localStorage.getItem('fleet_entities');
-    
-    if (savedDocs) {
-      try { setDocuments(JSON.parse(savedDocs)); } catch (e) { setDocuments(initialDocs); }
-    } else {
-      setDocuments(initialDocs);
-    }
-
-    if (savedEntities) {
-      try { setEntities(JSON.parse(savedEntities)); } catch (e) { setEntities(initialEntities); }
-    } else {
-      setEntities(initialEntities);
-    }
-    
-    setIsLoaded(true);
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (!user) {
+        setDocuments([]);
+        setEntities([]);
+        setIsLoaded(true);
+      }
+    });
+    return unsub;
   }, []);
 
-  // Recalculate days until expiry and save to LocalStorage on changes
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!user) {
+      return;
+    }
+
+    const unsubEntities = onSnapshot(collection(db, `users/${user.uid}/entities`), (snapshot) => {
+      const ents: Entity[] = [];
+      snapshot.forEach(doc => ents.push(doc.data() as Entity));
+      setEntities(ents);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/entities`);
+    });
+
+    const unsubDocs = onSnapshot(collection(db, `users/${user.uid}/documents`), async (snapshot) => {
+      const docs: Document[] = [];
+      snapshot.forEach(doc => docs.push(doc.data() as Document));
+      
+      // Migration from local storage on first load if cloud is empty
+      const localEnts = localStorage.getItem('fleet_entities');
+      const localDocs = localStorage.getItem('fleet_documents');
+      
+      if (docs.length === 0 && localEnts && localDocs) {
+         try {
+           const parsedEnts = JSON.parse(localEnts) as Entity[];
+           const parsedDocs = JSON.parse(localDocs) as Document[];
+           
+           if (parsedEnts.length > 0 || parsedDocs.length > 0) {
+             for (const e of parsedEnts) {
+               await setDoc(doc(db, `users/${user.uid}/entities`, e.id), { ...e, userId: user.uid });
+             }
+             for (const d of parsedDocs) {
+               await setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid });
+             }
+             localStorage.removeItem('fleet_entities');
+             localStorage.removeItem('fleet_documents');
+             console.log("Migrated local data to Firebase");
+           }
+         } catch(e) {
+           console.error("Migration failed", e);
+         }
+      }
+
+      setDocuments(docs);
+      setIsLoaded(true);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `users/${user.uid}/documents`);
+    });
+
+    return () => {
+      unsubEntities();
+      unsubDocs();
+    };
+  }, [user]);
+
+  // Recalculate days until expiry
+  useEffect(() => {
+    if (!isLoaded || documents.length === 0 || !user) return;
     
     let changed = false;
     const today = new Date();
@@ -68,37 +152,79 @@ export function FleetProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (changed) {
-      setDocuments(updatedDocs);
+      updatedDocs.forEach(async d => {
+        try {
+          await setDoc(doc(db, `users/${user.uid}/documents`, d.id), { ...d, userId: user.uid });
+        } catch (e) {
+          handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/documents/${d.id}`);
+        }
+      });
     }
-    localStorage.setItem('fleet_documents', JSON.stringify(updatedDocs));
-    localStorage.setItem('fleet_entities', JSON.stringify(entities));
-  }, [documents, entities, isLoaded]);
+  }, [documents, isLoaded, user]);
 
-  const renewDocument = (id: string, newExpiry: string) => {
-    setDocuments(docs => docs.map(doc => 
-      doc.id === id ? { ...doc, expiryDate: newExpiry } : doc
-    ));
+  const signIn = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
   };
 
-  const addDocument = (doc: Document) => {
-    setDocuments(docs => [...docs, doc]);
+  const logOut = async () => {
+    await signOut(auth);
   };
 
-  const deleteDocument = (id: string) => {
-    setDocuments(docs => docs.filter(d => d.id !== id));
+  const renewDocument = async (id: string, newExpiry: string) => {
+    if (!user) return;
+    const d = documents.find(doc => doc.id === id);
+    if (!d) return;
+    try {
+      await setDoc(doc(db, `users/${user.uid}/documents`, id), { ...d, expiryDate: newExpiry, userId: user.uid });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const addEntity = (entity: Entity) => {
-    setEntities(ents => [...ents, entity]);
+  const addDocument = async (docObj: Document) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, `users/${user.uid}/documents`, docObj.id), { ...docObj, userId: user.uid });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/documents/${docObj.id}`);
+    }
   };
 
-  const deleteEntity = (id: string) => {
-    setEntities(ents => ents.filter(e => e.id !== id));
-    setDocuments(docs => docs.filter(d => d.entityId !== id)); // Cascade delete documents
+  const deleteDocument = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/documents`, id));
+    } catch (e) {
+       console.error(e);
+    }
+  };
+
+  const addEntity = async (entity: Entity) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, `users/${user.uid}/entities`, entity.id), { ...entity, userId: user.uid });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/entities/${entity.id}`);
+    }
+  };
+
+  const deleteEntity = async (id: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/entities`, id));
+      
+      const relatedDocs = documents.filter(d => d.entityId === id);
+      for (const d of relatedDocs) {
+        await deleteDoc(doc(db, `users/${user.uid}/documents`, d.id));
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
-    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity }}>
+    <FleetContext.Provider value={{ documents, entities, renewDocument, addDocument, deleteDocument, addEntity, deleteEntity, user, signIn, logOut }}>
       {isLoaded ? children : null}
     </FleetContext.Provider>
   );

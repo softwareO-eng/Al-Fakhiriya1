@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "Entity": {
+      "title": "Entity",
+      "description": "Represents a physical object like a Truck or a Driver",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["Truck", "Driver"] },
+        "userId": { "type": "string", "description": "Owner UID" }
+      },
+      "required": ["id", "name", "type", "userId"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Represents a document belonging to an Entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "entityId": { "type": "string" },
+        "entityName": { "type": "string" },
+        "entityType": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "expiryDate": { "type": ["string", "null"] },
+        "status": { "type": "string" },
+        "daysUntilExpiry": { "type": ["number", "null"] },
+        "userId": { "type": "string", "description": "Owner UID" }
+      },
+      "required": ["id", "name", "type", "entityId", "entityName", "entityType", "issueDate", "status", "userId"]
+    }
+  },
+  "firestore": {
+    "users/{userId}/entities/{entityId}": {
+      "schema": { "$ref": "#/entities/Entity" },
+      "description": "Entities owned by the user"
+    },
+    "users/{userId}/documents/{documentId}": {
+      "schema": { "$ref": "#/entities/Document" },
+      "description": "Documents owned by the user"
+    }
+  }
+}
