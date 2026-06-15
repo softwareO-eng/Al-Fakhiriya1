@@ -5,12 +5,12 @@ import { format, parseISO } from 'date-fns';
 import { useFleet } from '../store';
 
 export default function Dashboard({ onViewAll }: { onViewAll: () => void }) {
-  const { documents, renewDocument } = useFleet();
+  const { documents, entities, renewDocument } = useFleet();
   
   const sortedDocs = [...documents].filter(d => d.daysUntilExpiry !== null).sort((a, b) => a.daysUntilExpiry! - b.daysUntilExpiry!);
   
-  const totalTrucks = new Set(documents.filter(d => d.entityType === 'Truck').map(d => d.entityId)).size || 85;
-  const totalDrivers = new Set(documents.filter(d => d.entityType === 'Driver').map(d => d.entityId)).size || 92;
+  const totalTrucks = entities.filter(e => e.type === 'Truck').length;
+  const totalDrivers = entities.filter(e => e.type === 'Driver').length;
   const validDocs = documents.filter(d => d.status === 'valid').length;
   const expiringSoonDocs = documents.filter(d => d.status === 'expiring_soon').length;
   const expiredDocs = documents.filter(d => d.status === 'expired').length;
