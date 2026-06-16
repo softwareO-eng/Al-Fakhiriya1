@@ -19,10 +19,18 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
   const handleAdd = (e: React.FormEvent) => {
   
     e.preventDefault();
-    if (!newEntityId || !newEntityName) return;
+    
+    // Auto-generate ID or Name if not provided
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const fallbackId = type === 'Truck' ? `TRK-${randomSuffix}` : `DRV-${randomSuffix}`;
+    const finalId = newEntityId.trim() || fallbackId;
+    
+    const fallbackName = type === 'Truck' ? `Truck ${finalId}` : `Driver ${finalId}`;
+    const finalName = newEntityName.trim() || fallbackName;
+
     addEntity({
-      id: newEntityId,
-      name: newEntityName,
+      id: finalId,
+      name: finalName,
       type
     });
     setIsAdding(false);
@@ -54,9 +62,8 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
           <h2 className="text-lg font-medium text-white mb-4">Add New {type}</h2>
           <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-4 items-end">
             <div className="flex-1 w-full">
-              <label className="block text-sm font-medium text-neutral-400 mb-1">{type} ID / Number</label>
+              <label className="block text-sm font-medium text-neutral-400 mb-1">{type} ID / Number (Optional)</label>
               <input 
-                required
                 type="text" 
                 placeholder={type === 'Truck' ? 'e.g. TRK-205' : 'e.g. DRV-015'}
                 value={newEntityId}
@@ -65,9 +72,8 @@ export default function EntitiesView({ type, onSelectEntity }: EntitiesViewProps
               />
             </div>
             <div className="flex-1 w-full">
-              <label className="block text-sm font-medium text-neutral-400 mb-1">{type} Name / Model</label>
+              <label className="block text-sm font-medium text-neutral-400 mb-1">{type} Name / Model (Optional)</label>
               <input 
-                required
                 type="text" 
                 placeholder={type === 'Truck' ? 'e.g. Scania R500' : 'e.g. Jane Doe'}
                 value={newEntityName}
